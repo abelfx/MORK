@@ -10,6 +10,7 @@ mork-frontend = { workspace=true }
 mork-expr = { workspace=true }
 mork-interning = { workspace = true }
 pathmap = { workspace = true, features = ["nightly"] }
+weighted-atom-sweep = { path = "../../weighted-atom-sweep" }
 log = { workspace=true }
 env_logger = { workspace=true }
 memmap2 = "0.9.5"

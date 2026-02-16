@@ -20,7 +20,8 @@ use base64::Engine;
 use serde::{Serialize, Deserialize};
 use clap::{Args, Parser as CLAParser, Subcommand, ValueEnum};
 use clap::builder::TypedValueParser;
-
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
 
 /*fn main() {
     let mut s = Space::new();
@@ -4950,12 +4951,74 @@ fn main() {
             let t0 = Instant::now();
 
             // 2. add random weights to the data via WS Sink
-            let mut performed = s.metta_calculus(steps);
-
-            // 3. retrive and operate arms
+            // I comment this out to ensure the 'exec' atoms remain for Step 3 processing below.
+            // let mut performed = s.metta_calculus(steps);
             
-             
+            let mut performed = 0;
 
+            // 3. retrive and operate arms in parallel threads
+            // Wrap space in Arc<Mutex> to share between threads
+            let space_mutex = Arc::new(Mutex::new(s));
+            let space_producer = space_mutex.clone();
+            let space_consumer = space_mutex.clone();
+
+            let (tx, rx) = mpsc::channel();
+
+            // Thread 1: Retrieval / Traversal
+            let producer_handle = thread::spawn(move || {
+                // scan for `exec` atoms similar to metta_calculus
+                const EXEC_PREFIX: [u8; 6] = const { [item_byte(Tag::Arity(4)), item_byte(Tag::SymbolSize(4)), b'e', b'x', b'e', b'c' ] };
+
+                let mut found_count = 0;
+                let max_search_steps = 1000; 
+
+                for _ in 0..max_search_steps {
+                    // Lock space to read/scan
+                    let mut space = space_producer.lock().unwrap();
+                    
+                    let mut rz = space.btm.read_zipper_at_borrowed_path(&EXEC_PREFIX[..]);
+                    if rz.to_next_val() {
+                        let path: Vec<u8> = rz.into_path();
+                        // Remove from space so other threads/iterations don't pick it up
+                        space.btm.remove(&path[..]); 
+                        
+                        if tx.send(path).is_err() {
+                            break; 
+                        }
+                        found_count += 1;
+                    } else {
+                        break; 
+                    }
+                    // Unlock happens automatically when `space` goes out of scope (end of loop iteration)
+                }
+                println!("Producer (Traversal) finished. Found {} arms.", found_count);
+            });
+
+            // Thread 2: Operation
+            // Receives paths and executes/operates on them 
+            let consumer_handle = thread::spawn(move || {
+                let mut processed_count = 0;
+                for mut path in rx {
+                    let mut space = space_consumer.lock().unwrap();
+                    // Interpret/Operate the arm
+                    if let Err(e) = space.interpret(mork_expr::Expr{ ptr: path.as_mut_ptr() as *mut u8 }) {
+                         println!("Error interpreting arm: {}", e);
+                    }
+                    processed_count += 1;
+                }
+                println!("Consumer (Operation) finished. Processed {} arms.", processed_count);
+            });
+
+            // Wait for threads to complete
+            producer_handle.join().unwrap();
+            consumer_handle.join().unwrap();
+
+            let mut s = Arc::try_unwrap(space_mutex)
+                .map_err(|_| "Failed to unwrap Arc: other references exist")
+                .unwrap()
+                .into_inner()
+                .unwrap();
+             
             if output_path.is_none() {
                 let mut v = vec![];
                 s.dump_all_sexpr(&mut v).unwrap();
