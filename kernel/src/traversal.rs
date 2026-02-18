@@ -5,7 +5,7 @@ use pathmap::{morphisms::Catamorphism, zipper::{ReadZipperUntracked, Zipper, Zip
 
 use crate::space::Space;
 
-trait TraversalEngine<V>
+pub trait TraversalEngine<V>
     where V: Clone + Sync + Send {
     fn next_atom(&self, zipper: ReadZipperUntracked<V>) -> Option<Vec<u8>>; 
 }
@@ -116,6 +116,9 @@ impl Space {
         }
         
         // Fallback (shouldn't happen with proper algorithm)
+        if choice_param.is_empty() {
+            return PathChoice::Value(());
+        }
         PathChoice::Path(choice_param[0].1)
             
     }
